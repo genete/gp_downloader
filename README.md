@@ -1,49 +1,87 @@
 # gp_downloader
 
-Descargador autónomo de fotos y vídeos de Google Fotos.
+Descargador autónomo de fotos y vídeos de Google Fotos que simula comportamiento humano para no incumplir los Términos de Servicio.
 
-## ¿Qué hace?
+## ¿Cómo funciona?
 
-Automatiza la descarga masiva de contenido desde Google Fotos combinando tres piezas:
+En lugar de llamar a ninguna API ni hacer scraping agresivo, el sistema automatiza exactamente lo que haría un usuario descargando fotos a mano:
 
-- **Extensión de Chrome**: lee el DOM de Google Fotos y detecta los elementos multimedia disponibles.
-- **Orquestador Python**: dirige el flujo de descarga, gestiona el progreso y coordina los demás componentes.
-- **AutoHotkey (AHK)**: envía combinaciones de teclas al navegador para acciones que requieren interacción nativa del sistema operativo.
+1. Busca un mes y año concreto en Google Fotos (`/ → CTRL+A → "enero 2018" → ENTER`)
+2. Si hay resultados, descarga item a item con `SHIFT+D` avanzando con `→`
+3. Detecta el fin del mes cuando el mismo archivo aparece por segunda vez
+4. Cambia al siguiente mes y repite
+5. Organiza los archivos descargados en carpetas `mes_año/`
 
-La comunicación entre la extensión y Python se realiza mediante archivos JSON escritos en `~/Downloads/`. También se estudia el uso de **Chrome Native Messaging** como alternativa más directa.
+El ritmo es lento e intencional: una descarga cada vez, con pausas naturales entre pulsaciones.
 
-## Estado actual
+## Componentes
 
-Proyecto en fase de diseño / prototipo inicial.
+| Componente | Tecnología | Rol |
+|---|---|---|
+| Extensión Chrome | JS / Manifest V3 | Observa el DOM y el estado de descargas |
+| Orquestador | Python 3.11+ | Dirige el flujo y gestiona archivos |
+| Automatización de teclado | AutoHotkey v2 | Envía teclas al navegador de forma fiable |
 
-## Arquitectura
+## Comunicación entre componentes
 
 ```
-┌─────────────────────┐
-│  Google Fotos (Chrome) │
-│  + Extensión         │
-└────────┬────────────┘
-         │ JSON en ~/Downloads/
-         ▼
-┌─────────────────────┐       ┌──────────┐
-│  Orquestador Python  │──────▶│   AHK    │
-└─────────────────────┘       └──────────┘
+Extensión Chrome
+      │
+      │  archivos gp_signal_*.json en ~/Downloads/
+      ▼
+Orquestador Python ──── gp_cmd.txt ────▶ AutoHotkey ──▶ Chrome (teclas)
+      │
+      ▼
+  ~/Downloads/gp/mes_año/
 ```
 
 ## Requisitos
 
 - Windows 10/11
-- Chrome con la extensión cargada en modo desarrollador
+- Google Chrome con la extensión cargada en modo desarrollador
 - Python 3.11+
 - AutoHotkey v2
 
-## Instalación
+## Configuración
 
-> Instrucciones pendientes hasta que el prototipo esté funcional.
+Edita `config/meses.csv` con la lista de meses a descargar:
 
-## Alternativa: Native Messaging
+```csv
+mes,anyo,estado
+enero,2015,pendiente
+febrero,2015,pendiente
+```
 
-Se está evaluando reemplazar los JSON en disco por **Chrome Native Messaging**, donde la extensión se comunica directamente con un proceso Python mediante stdin/stdout. Esto eliminaría la necesidad de polling y archivos temporales, a costa de mayor complejidad de configuración.
+## Uso
+
+```bash
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Iniciar la descarga
+python orchestrator/main.py
+
+# Durante la ejecución:
+#   p  → pausar al terminar el item actual
+#   q  → guardar estado y salir
+```
+
+El progreso se guarda en `orchestrator/state.json`: si se interrumpe, al volver a ejecutar continúa desde donde lo dejó.
+
+## Estructura del proyecto
+
+```
+gp_downloader/
+├── extension/          # Extensión Chrome (Manifest V3)
+├── orchestrator/       # Orquestador Python
+├── ahk/                # Script AutoHotkey
+└── config/
+    └── meses.csv       # Lista de meses a procesar
+```
+
+## Estado del proyecto
+
+En desarrollo. Actualmente en fase de diseño de arquitectura.
 
 ## Licencia
 

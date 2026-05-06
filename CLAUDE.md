@@ -2,90 +2,151 @@
 
 ## Descripción del proyecto
 
-Sistema autónomo de descarga masiva de fotos y vídeos desde Google Fotos. El sistema combina una extensión de Chrome, un orquestador en Python y automatización de teclado con AutoHotkey (AHK).
+Sistema autónomo de descarga masiva de ~35.000 fotos y vídeos desde Google Fotos.
+Simula comportamiento humano (pulsaciones de tecla una a una, con esperas naturales)
+para no incumplir los TOS de Google Fotos ni levantar alertas por descargas masivas en paralelo.
 
-## Arquitectura
+## Método de descarga
 
-### Componentes principales
+El usuario tiene Google Fotos abierto y logueado en Chrome. El sistema automatiza:
 
-1. **Extensión de Chrome** (`extension/`)
-   - Lee el DOM de Google Fotos para detectar elementos multimedia
-   - Controla el estado de la navegación (scroll, selección, descarga)
-   - Escribe archivos JSON de señalización en `~/Downloads/` para comunicarse con Python
-   - Alternativa en estudio: Native Messaging (la extensión actúa como host que despierta a Python)
-
-2. **Orquestador Python** (`orchestrator/`)
-   - Dirige el flujo de descarga desde fuera de Chrome
-   - Lee los JSON de señalización generados por la extensión
-   - Coordina la lógica de reintentos, deduplicación y progreso
-   - Alternativa en estudio: actuar como Native Messaging host (Python recibe mensajes directamente de la extensión sin archivos intermedios)
-
-3. **Automatización AHK** (`ahk/`)
-   - Envía combinaciones de teclas al navegador para acciones que no se pueden hacer desde JS (ej. activar el diálogo de descarga del sistema)
-   - Actúa como puente de bajo nivel cuando la extensión no puede disparar eventos nativos del sistema
-
-### Flujo de comunicación actual (JSON en disco)
+### Flujo por mes/año
 
 ```
-Chrome (extensión)  →  ~/Downloads/gp_signal_*.json  →  Python (orquestador)
-Python              →  ~/Downloads/gp_cmd_*.json      →  Chrome (extensión lee en polling)
-Python              →  AHK script                     →  Chrome (teclas del sistema)
+1. Enfocar la barra de búsqueda:  /
+2. Seleccionar texto anterior:    CTRL+A
+3. Escribir "mes año":            e.g. "enero 2018"
+4. Confirmar búsqueda:            ENTER
+5. [Extensión] ¿Hay resultados?
+   - NO → pasar al siguiente mes/año
+   - SÍ → el primer item queda enfocado automáticamente → bucle de descarga
 ```
 
-### Alternativa en estudio: Native Messaging
+### Bucle de descarga (por item)
 
 ```
-Chrome (extensión)  ←→  Python (native messaging host)
-```
-- La extensión se comunica con Python mediante stdin/stdout
-- Elimina la necesidad de archivos JSON intermedios
-- Python debe estar registrado como host en el registro de Windows / manifiesto de NM
-- **Tarea pendiente**: evaluar complejidad de implementación vs. beneficio
+ENTER          → abre el item en vista detalle
+SHIFT+D        → descarga el item actual
+[Python espera a que el archivo aparezca en ~/Downloads/]
+RIGHT-ARROW    → avanza al siguiente item
+SHIFT+D        → descarga
+[Python espera...]
+...
 
-## Estructura de directorios (objetivo)
+Condición de fin de mes: cuando se descarga el mismo archivo dos veces
+(Google Fotos vuelve al primer item al llegar al final del mes).
+→ ESC          → vuelve al mosaico
+→ siguiente mes/año
+```
+
+### Detección de duplicado = fin de mes
+
+Cuando `SHIFT+D` genera un archivo que ya existe en `~/Downloads/` o en la carpeta del mes,
+Python detecta que se ha llegado al final del mes y aborta el bucle.
+
+## Arquitectura de componentes
+
+### 1. Extensión de Chrome (`extension/`)
+**Responsabilidad mínima**: solo observa el estado de Google Fotos, no controla el flujo.
+
+Señales que emite (JSON en `~/Downloads/`):
+- `gp_signal_has_results.json` — hay al menos un item en la búsqueda actual
+- `gp_signal_no_results.json` — la búsqueda no devolvió resultados
+- `gp_signal_download_started.json` — se detectó el inicio de una descarga
+- `gp_signal_download_done.json` — la descarga completó (archivo ya en disco)
+
+Cómo detecta el estado:
+- Presencia/ausencia de items en el DOM de resultados de búsqueda
+- Observación del estado de descarga del navegador (si es posible vía `chrome.downloads` API)
+- **Nota**: `chrome.downloads` API permite observar descargas sin hacer scraping directo
+
+### 2. Orquestador Python (`orchestrator/`)
+**Responsabilidad**: dirige el flujo completo, gestiona el estado y la resiliencia.
+
+- Lee los JSON de señalización de la extensión (polling o `watchdog`)
+- Decide qué tecla enviar a AHK a continuación
+- Detecta fin de mes (archivo duplicado en `~/Downloads/`)
+- Mueve/renombra archivos descargados a `~/Downloads/mes_año/`
+- Mantiene un registro de progreso (`estado.json`) para poder **pausar y reanudar**
+- Interfaz de consola para pausar en el mes actual y continuar más tarde
+
+### 3. AutoHotkey (`ahk/`)
+**Responsabilidad**: enviar teclas al sistema operativo de forma fiable.
+
+- Recibe instrucción de Python (via archivo `gp_cmd.ahk` o pipe) con la tecla a enviar
+- Enfoca la ventana de Chrome justo antes del envío (`WinActivate`)
+- Usa `Send` o `ControlSend` según convenga
+- Introduce delays aleatorios pequeños entre pulsaciones para parecer humano
+
+### Comunicación (JSON en disco)
+
+```
+Extensión  →  ~/Downloads/gp_signal_*.json  →  Python (consume y borra el archivo)
+Python     →  ~/Downloads/gp_cmd.txt        →  AHK (AHK hace polling del archivo)
+```
+
+El archivo de comando se borra tras ser procesado por AHK para evitar procesarlo dos veces.
+
+## Estructura de directorios
 
 ```
 gp_downloader/
-├── extension/          # Extensión de Chrome (Manifest V3)
+├── extension/              # Extensión Chrome Manifest V3
 │   ├── manifest.json
-│   ├── background.js   # Service worker
-│   ├── content.js      # Lectura del DOM de Google Fotos
-│   └── popup/
-├── orchestrator/       # Orquestador Python
-│   ├── main.py
-│   ├── watcher.py      # Monitoriza los JSON de señalización
-│   └── downloader.py
-├── ahk/                # Scripts AutoHotkey
-│   └── send_keys.ahk
-├── native_messaging/   # (en estudio) Host para Native Messaging
-│   └── host.py
+│   ├── background.js       # Service worker + chrome.downloads observer
+│   └── content.js          # Observer del DOM de Google Fotos
+├── orchestrator/
+│   ├── main.py             # Bucle principal + CLI de pausa/reanudación
+│   ├── watcher.py          # Lectura de señales JSON
+│   ├── file_manager.py     # Mover/renombrar descargas a mes_año/
+│   └── state.json          # Progreso persistente (mes actual, items procesados)
+├── ahk/
+│   └── sender.ahk          # Lee gp_cmd.txt y envía la tecla a Chrome
+├── config/
+│   └── meses.csv           # Lista ordenada de "mes año" a procesar
 └── CLAUDE.md
 ```
 
-## Convenciones
+## Configuración externa (`config/meses.csv`)
 
-- Python 3.11+, sin dependencias pesadas si se puede evitar
-- Extensión en Manifest V3 (sin background pages persistentes, usar service worker)
-- Los archivos JSON de señalización usan el prefijo `gp_` y se eliminan tras ser consumidos
-- Logs en español en consola; código y nombres de variables en inglés
-- No usar librerías de scraping externas en la extensión (solo APIs del navegador)
-
-## Decisiones pendientes / en estudio
-
-- [ ] Evaluar Native Messaging vs. JSON en disco: complejidad, latencia, robustez
-- [ ] Estrategia de scroll y detección de fin de galería
-- [ ] Manejo de rate limiting de Google Fotos
-- [ ] Deduplicación por hash o por nombre de archivo
-
-## Comandos útiles (cuando el proyecto avance)
-
-```bash
-# Instalar dependencias Python
-pip install -r requirements.txt
-
-# Cargar la extensión en Chrome (modo desarrollador)
-# chrome://extensions → "Cargar descomprimida" → seleccionar extension/
-
-# Ejecutar el orquestador
-python orchestrator/main.py
+```csv
+mes,anyo,estado
+enero,2015,pendiente
+febrero,2015,pendiente
+...
+diciembre,2024,completado
 ```
+
+`estado` puede ser: `pendiente`, `en_curso`, `completado`, `saltado`
+
+## Gestión de archivos descargados
+
+- Directorio destino: `~/Downloads/gp/mes_año/` (ej. `gp/enero_2015/`)
+- Python mueve cada archivo descargado a su carpeta antes de pedir la siguiente tecla
+- Si el nombre de archivo ya existe en la carpeta, renombra con sufijo `_2`, `_3`, etc.
+- La detección de "mismo archivo dos veces" = mismo nombre base (sin sufijo de Chrome como `(1)`)
+
+## Resiliencia y pausa
+
+- `estado.json` guarda el mes/año actual y el índice del último item descargado
+- Python ofrece comando `p` en consola para pausar al terminar el item actual
+- Al reanudar, lee `estado.json` y navega directamente al mes/año donde se quedó
+- Si Chrome se cierra o falla, Python espera y reintenta antes de abortar
+
+## Decisión de arquitectura: JSON en disco vs. Native Messaging
+
+Para este caso de uso (35.000 items, ritmo humano, sin urgencia de latencia baja)
+**la solución con JSON en disco es preferible**:
+- Simplicidad de implementación y depuración
+- Los archivos JSON son legibles si hay que depurar
+- La latencia de polling (100-500ms) es irrelevante cuando cada descarga tarda segundos
+
+Native Messaging queda documentado como alternativa futura si se necesita reactividad inmediata.
+
+## Convenciones de código
+
+- Python 3.11+, dependencias mínimas (`watchdog` para observar archivos si se quiere evitar polling activo)
+- Extensión en Manifest V3 (service worker, sin background pages persistentes)
+- Archivos JSON de señalización: prefijo `gp_`, se borran tras ser consumidos
+- Logs en español en consola; código y nombres de variables en inglés
+- Delays entre pulsaciones: aleatorios en rango humano (0.5s – 2s según la acción)
