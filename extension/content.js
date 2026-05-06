@@ -18,11 +18,10 @@ function checkDomState() {
 
   if (inSearch && !noResults) {
     if (tryClickMas()) {
-      // Hay botón "Más" → lo pulsamos; el MutationObserver volverá a disparar
-      // cuando carguen los nuevos resultados
-      return;
+      return;  // MutationObserver volverá a disparar cuando carguen los nuevos resultados
     }
     // Sin botón "Más" y sin "sin resultados" → todos los resultados están cargados
+    console.log('[GP] SEARCH_READY — url:', location.href);
     sendToBackground({ type: 'SEARCH_READY', url: location.href });
   }
 
@@ -41,10 +40,10 @@ function tryClickMas() {
   return false;
 }
 
-// Debounce: 1000ms para dar tiempo a que carguen los nuevos resultados tras "Más"
+// Debounce: 300ms — equilibrio entre velocidad y estabilidad del DOM
 const observer = new MutationObserver(() => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(checkDomState, 1000);
+  debounceTimer = setTimeout(checkDomState, 300);
 });
 
 observer.observe(document.body, { childList: true, subtree: true, characterData: true });
