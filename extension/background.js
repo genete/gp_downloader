@@ -7,7 +7,7 @@ const ownDownloadIds = new Set();
 // El nombre lleva timestamp para que cada señal sea un archivo único.
 // Python (watchdog) reacciona al evento de creación, lo lee y lo borra.
 async function writeSignal(type, data) {
-  const filename = `gp_signal_${type}_${Date.now()}.json`;
+  const filename = `gp_signals/gp_signal_${type}_${Date.now()}.json`;
   const payload = { ...data, ts: Date.now() };
   const json = JSON.stringify(payload, null, 2);
 
