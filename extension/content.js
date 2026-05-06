@@ -12,7 +12,8 @@ const NO_RESULTS_STRINGS = [
 let masTimer = null;
 let masActive = false;
 let masClicks = 0;
-const MAS_MAX_CLICKS = 50;  // seguridad contra bucle infinito
+let searchReadySentFor = '';   // evita enviar SEARCH_READY varias veces para la misma URL
+const MAS_MAX_CLICKS = 50;
 
 function scheduleMasCheck(delayMs) {
   clearTimeout(masTimer);
@@ -45,8 +46,11 @@ function doMasCheck() {
   // No hay botón "Más" → todos los resultados cargados
   masActive = false;
   masClicks = 0;
-  console.log('[GP] SEARCH_READY —', location.href);
-  sendToBackground({ type: 'SEARCH_READY', url: location.href });
+  if (searchReadySentFor !== location.href) {
+    searchReadySentFor = location.href;
+    console.log('[GP] SEARCH_READY —', location.href);
+    sendToBackground({ type: 'SEARCH_READY', url: location.href });
+  }
 }
 
 // --- Detección de "sin resultados" y arranque del ciclo "Más" ---
@@ -63,10 +67,8 @@ function checkDomState() {
   }
 
   const inSearch = location.href.includes('/search/') && !location.href.includes('/photo/');
-  if (inSearch && !masActive) {
+  if (inSearch && !masActive && searchReadySentFor !== location.href) {
     masActive = true;
-    // 3s para que Google Fotos termine de renderizar la página completa
-    // (incluyendo el botón "Más" que aparece en una segunda fase)
     scheduleMasCheck(3000);
   }
 }
