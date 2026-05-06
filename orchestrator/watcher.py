@@ -66,4 +66,4 @@ def wait(expected_types: list[str], timeout: float) -> dict | None:
                 return signal
             # Tipo inesperado: descartar y seguir esperando en el tiempo restante
         except queue.Empty:
-            return None
+            continue  # sin señal en este segundo, seguir hasta deadline
