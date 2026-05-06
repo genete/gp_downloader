@@ -1,6 +1,9 @@
 // IDs de descargas creadas por nosotros (señales JSON) para ignorarlas en el monitor
 const ownDownloadIds = new Set();
 
+// URL de Google Fotos en el momento de iniciar cada descarga (id → url)
+const downloadPhotoUrl = new Map();
+
 // --- Escritura de señales JSON en ~/Downloads/ ---
 
 // Escribe un archivo JSON en la carpeta de descargas del sistema.
@@ -34,10 +37,15 @@ async function writeSignal(type, data) {
 
 // --- Monitor de descargas reales (no señales) ---
 
-chrome.downloads.onCreated.addListener(item => {
+chrome.downloads.onCreated.addListener(async item => {
   if (ownDownloadIds.has(item.id)) return;
-  // filename está vacío en onCreated; el nombre real llega en onChanged → complete
-  console.log(`[GP] Descarga iniciada (id=${item.id})`);
+
+  // Capturar la URL de la foto en el momento del SHIFT+D (antes de que navegue)
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const photoUrl = tab?.url ?? '';
+  downloadPhotoUrl.set(item.id, photoUrl);
+
+  console.log(`[GP] Descarga iniciada (id=${item.id}) url=${photoUrl}`);
 });
 
 chrome.downloads.onChanged.addListener(delta => {
@@ -48,12 +56,15 @@ chrome.downloads.onChanged.addListener(delta => {
     if (!item) return;
 
     const basename = item.filename.split(/[/\\]/).pop();
-    console.log(`[GP] Descarga completa: ${basename} (${item.referrer})`);
+    const photoUrl = downloadPhotoUrl.get(delta.id) ?? '';
+    downloadPhotoUrl.delete(delta.id);
+
+    console.log(`[GP] Descarga completa: ${basename} url=${photoUrl}`);
 
     writeSignal('download_done', {
       filename: item.filename,   // ruta completa con el nombre que dio Chrome
       basename,
-      referrer: item.referrer    // URL única de la foto → Python detecta fin de mes
+      photoUrl                   // URL única de la foto → Python detecta fin de mes
     });
   });
 });
