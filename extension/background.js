@@ -1,9 +1,6 @@
 // IDs de descargas creadas por nosotros (señales JSON) para ignorarlas en el monitor
 const ownDownloadIds = new Set();
 
-// Último nombre base descargado para detectar duplicado = fin de mes
-let lastDownloadBasename = null;
-
 // --- Escritura de señales JSON en ~/Downloads/ ---
 
 // Escribe un archivo JSON en la carpeta de descargas del sistema.
@@ -49,27 +46,15 @@ chrome.downloads.onChanged.addListener(delta => {
     if (!item) return;
 
     const basename = item.filename.split(/[/\\]/).pop();
-    const baseStem = stripChromeSuffix(basename);
-    const prevStem = lastDownloadBasename ? stripChromeSuffix(lastDownloadBasename) : null;
+    console.log(`[GP] Descarga completa: ${basename}`);
 
-    // Mismo archivo descargado dos veces = hemos llegado al final del mes
-    const duplicate = prevStem !== null && baseStem === prevStem;
-    lastDownloadBasename = basename;
-
-    console.log(`[GP] Descarga completa: ${basename}${duplicate ? ' ⚠ DUPLICADO (fin de mes)' : ''}`);
-
+    // Python decide si es duplicado comparando con la descarga anterior
     writeSignal('gp_signal_download_done.json', {
       filename: item.filename,
-      basename,
-      duplicate
+      basename
     });
   });
 });
-
-// Quita el sufijo que Chrome añade a descargas duplicadas: "foto (1).jpg" → "foto.jpg"
-function stripChromeSuffix(name) {
-  return name.replace(/ \(\d+\)(\.[^.]+)$/, '$1').replace(/ \(\d+\)$/, '');
-}
 
 // --- Mensajes desde content.js ---
 
