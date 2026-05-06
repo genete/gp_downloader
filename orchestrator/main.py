@@ -34,7 +34,8 @@ def _search(mes: str, anyo: str):
     ahk.send('enter', pause_min=0.5, pause_max=1.0)
 
 
-def _download_month(mes: str, anyo: str) -> int:
+def _download_month(mes: str, anyo: str) -> tuple[int, bool]:
+    """Descarga todas las fotos del mes. Devuelve (count, completado_ok)."""
     seen_urls: set[str] = set()
     count = 0
 
@@ -53,7 +54,7 @@ def _download_month(mes: str, anyo: str) -> int:
         if signal is None:
             print(' TIMEOUT — abortando mes')
             ahk.send('escape')
-            return count
+            return count, False
 
         photo_url = signal.get('photoUrl', '')
         filename  = signal.get('filename', '')
@@ -62,14 +63,13 @@ def _download_month(mes: str, anyo: str) -> int:
         if photo_url in seen_urls:
             # Misma URL = Google Fotos volvió al primer ítem → fin de mes
             print(f' {basename} → fin de mes ({count} fotos)')
-            # El archivo duplicado también va a la carpeta (es la misma foto)
             try:
                 move_to_month(filename, mes, anyo)
             except FileNotFoundError:
                 pass
             ahk.send('escape')
             time.sleep(random.uniform(0.8, 1.5))
-            return count
+            return count, True
 
         seen_urls.add(photo_url)
 
@@ -82,7 +82,7 @@ def _download_month(mes: str, anyo: str) -> int:
 
         ahk.send('right')
 
-    return count
+    return count, False
 
 
 def run():
@@ -115,13 +115,15 @@ def run():
                 continue
 
             print(' hay resultados')
-            count = _download_month(mes, anyo)
+            count, ok = _download_month(mes, anyo)
 
-            if _quit.is_set():
+            if _quit.is_set() or not ok:
                 state.mark(months, mes, anyo, 'pendiente')
+                if not ok:
+                    print(f'  [!] {mes} {anyo}: abortado por timeout ({count} fotos descargadas)')
             else:
                 state.mark(months, mes, anyo, 'completado')
-                print(f'  ✓ {mes} {anyo}: {count} fotos')
+                print(f'  [OK] {mes} {anyo}: {count} fotos')
 
             if _pause.is_set():
                 print('Pausado. Vuelve a ejecutar para continuar desde el siguiente mes.')
