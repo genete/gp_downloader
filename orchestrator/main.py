@@ -86,7 +86,7 @@ def _download_month(mes: str, anyo: str) -> tuple[int, bool]:
 
 
 def run():
-    observer = watcher.start(SIGNALS_DIR)
+    watcher.start(SIGNALS_DIR)
     threading.Thread(target=_console, daemon=True).start()
 
     months = state.load()
@@ -130,8 +130,7 @@ def run():
                 break
 
     finally:
-        observer.stop()
-        observer.join()
+        pass  # el polling no tiene recursos que liberar
 
 
 if __name__ == '__main__':
