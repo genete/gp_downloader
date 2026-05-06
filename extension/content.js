@@ -11,6 +11,8 @@ const NO_RESULTS_STRINGS = [
 
 let masTimer = null;
 let masActive = false;
+let masClicks = 0;
+const MAS_MAX_CLICKS = 50;  // seguridad contra bucle infinito
 
 function scheduleMasCheck(delayMs) {
   clearTimeout(masTimer);
@@ -19,19 +21,29 @@ function scheduleMasCheck(delayMs) {
 
 function doMasCheck() {
   masTimer = null;
-  if (!location.href.includes('/search/') || location.href.includes('/photo/')) return;
+  if (!location.href.includes('/search/')) return;
+  if (location.href.includes('/photo/')) return;
+
+  if (masClicks >= MAS_MAX_CLICKS) {
+    console.warn('[GP] Límite de clics en "Más" alcanzado — forzando SEARCH_READY');
+    masActive = false;
+    sendToBackground({ type: 'SEARCH_READY', url: location.href });
+    return;
+  }
 
   for (const el of document.querySelectorAll('button, [role="button"]')) {
     if (el.textContent.trim() === 'Más') {
+      masClicks++;
       el.click();
-      console.log('[GP] Botón "Más" pulsado — esperando siguiente lote...');
-      scheduleMasCheck(2500);  // esperar a que cargue el siguiente lote
-      return;
+      console.log(`[GP] "Más" pulsado (${masClicks}) — esperando siguiente lote...`);
+      scheduleMasCheck(2500);
+      return;  // esperar, no enviar SEARCH_READY todavía
     }
   }
 
-  // No hay botón "Más" → todos los resultados están cargados
+  // No hay botón "Más" → todos los resultados cargados
   masActive = false;
+  masClicks = 0;
   console.log('[GP] SEARCH_READY —', location.href);
   sendToBackground({ type: 'SEARCH_READY', url: location.href });
 }
