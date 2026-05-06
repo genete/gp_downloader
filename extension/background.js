@@ -48,10 +48,13 @@ chrome.downloads.onChanged.addListener(delta => {
     if (!item) return;
 
     const basename = item.filename.split(/[/\\]/).pop();
-    console.log(`[GP] Descarga completa: ${basename}`);
+    console.log(`[GP] Descarga completa: ${basename} (${item.referrer})`);
 
-    // Python decide si es duplicado comparando con la descarga anterior
-    writeSignal('download_done', { filename: item.filename, basename });
+    writeSignal('download_done', {
+      filename: item.filename,   // ruta completa con el nombre que dio Chrome
+      basename,
+      referrer: item.referrer    // URL única de la foto → Python detecta fin de mes
+    });
   });
 });
 
