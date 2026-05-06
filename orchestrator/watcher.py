@@ -22,10 +22,13 @@ def drain():
             pass
 
 
-def wait(expected_types: list[str], timeout: float) -> dict | None:
-    """Polling cada 0.5s hasta encontrar una señal del tipo esperado o agotar timeout."""
+def wait(expected_types: list[str], timeout: float, stop_event=None) -> dict | None:
+    """Polling cada 0.5s hasta encontrar una señal del tipo esperado o agotar timeout.
+    stop_event: threading.Event que interrumpe la espera inmediatamente si se activa."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if stop_event is not None and stop_event.is_set():
+            return None
         for signal_type in expected_types:
             files = sorted(_signals_dir.glob(f'gp_signal_{signal_type}_*.json'))
             if not files:

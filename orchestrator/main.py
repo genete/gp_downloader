@@ -49,7 +49,7 @@ def _download_month(mes: str, anyo: str) -> tuple[int, bool]:
         ahk.send('shift_d')
 
         print(f'  [{mes} {anyo}] #{count + 1} esperando descarga...', end='', flush=True)
-        signal = watcher.wait(['download_done'], timeout=DOWNLOAD_TIMEOUT)
+        signal = watcher.wait(['download_done'], timeout=DOWNLOAD_TIMEOUT, stop_event=_quit)
 
         if signal is None:
             print(' TIMEOUT — abortando mes')
@@ -107,7 +107,7 @@ def run():
             _search(mes, anyo)
 
             print(f'  Esperando resultado de búsqueda...', end='', flush=True)
-            signal = watcher.wait(['no_results'], timeout=SEARCH_TIMEOUT)
+            signal = watcher.wait(['no_results'], timeout=SEARCH_TIMEOUT, stop_event=_quit)
 
             if signal:
                 print(' sin resultados → saltando')
