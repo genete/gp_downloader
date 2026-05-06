@@ -1,3 +1,6 @@
+// Confirmación de que el script se ha inyectado correctamente (visible en F12 de la pestaña)
+console.log('[GP] Content script cargado en:', location.href);
+
 // Cadenas que Google Fotos muestra cuando una búsqueda no tiene resultados.
 // Hay que confirmar experimentalmente que nunca aparecen con resultados presentes.
 const NO_RESULTS_STRINGS = [

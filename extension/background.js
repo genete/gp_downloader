@@ -37,7 +37,8 @@ async function writeSignal(filename, data) {
 
 chrome.downloads.onCreated.addListener(item => {
   if (ownDownloadIds.has(item.id)) return;
-  console.log(`[GP] Descarga iniciada: ${item.filename}`);
+  // filename está vacío en onCreated; el nombre real llega en onChanged → complete
+  console.log(`[GP] Descarga iniciada (id=${item.id})`);
 });
 
 chrome.downloads.onChanged.addListener(delta => {
