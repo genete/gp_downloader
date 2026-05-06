@@ -32,13 +32,14 @@ function doMasCheck() {
   }
 
   for (const el of document.querySelectorAll('button, [role="button"]')) {
-    if (el.textContent.trim() === 'Más') {
-      masClicks++;
-      el.click();
-      console.log(`[GP] "Más" pulsado (${masClicks}) — esperando siguiente lote...`);
-      scheduleMasCheck(2500);
-      return;  // esperar, no enviar SEARCH_READY todavía
-    }
+    if (el.textContent.trim() !== 'Más') continue;
+    // Ignorar elementos ocultos (display:none, visibility:hidden, fuera del flujo)
+    if (el.offsetWidth === 0 && el.offsetHeight === 0) continue;
+    masClicks++;
+    el.click();
+    console.log(`[GP] "Más" pulsado (${masClicks}) — esperando siguiente lote...`);
+    scheduleMasCheck(2500);
+    return;
   }
 
   // No hay botón "Más" → todos los resultados cargados
@@ -64,7 +65,9 @@ function checkDomState() {
   const inSearch = location.href.includes('/search/') && !location.href.includes('/photo/');
   if (inSearch && !masActive) {
     masActive = true;
-    scheduleMasCheck(600);  // primera comprobación tras estabilizar el DOM inicial
+    // 3s para que Google Fotos termine de renderizar la página completa
+    // (incluyendo el botón "Más" que aparece en una segunda fase)
+    scheduleMasCheck(3000);
   }
 }
 
