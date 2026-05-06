@@ -4,8 +4,10 @@ const ownDownloadIds = new Set();
 // --- Escritura de señales JSON en ~/Downloads/ ---
 
 // Escribe un archivo JSON en la carpeta de descargas del sistema.
-// Python hace polling de estos archivos; los consume y los borra.
-async function writeSignal(filename, data) {
+// El nombre lleva timestamp para que cada señal sea un archivo único.
+// Python (watchdog) reacciona al evento de creación, lo lee y lo borra.
+async function writeSignal(type, data) {
+  const filename = `gp_signal_${type}_${Date.now()}.json`;
   const payload = { ...data, ts: Date.now() };
   const json = JSON.stringify(payload, null, 2);
 
@@ -20,7 +22,7 @@ async function writeSignal(filename, data) {
         url: `data:application/json;base64,${b64}`,
         filename,
         saveAs: false,
-        conflictAction: 'overwrite'
+        conflictAction: 'uniquify'
       },
       id => {
         ownDownloadIds.add(id);
@@ -49,10 +51,7 @@ chrome.downloads.onChanged.addListener(delta => {
     console.log(`[GP] Descarga completa: ${basename}`);
 
     // Python decide si es duplicado comparando con la descarga anterior
-    writeSignal('gp_signal_download_done.json', {
-      filename: item.filename,
-      basename
-    });
+    writeSignal('download_done', { filename: item.filename, basename });
   });
 });
 
@@ -62,7 +61,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'DOM_STATE') {
     if (msg.noResults) {
       console.log('[GP] DOM: sin resultados detectado');
-      writeSignal('gp_signal_no_results.json', { noResults: true, url: msg.url });
+      writeSignal('no_results', { noResults: true, url: msg.url });
     } else {
       // Solo loguear; Python asume "hay resultados" si no llega gp_signal_no_results
       console.log('[GP] DOM: resultados presentes');
