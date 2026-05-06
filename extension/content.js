@@ -68,7 +68,11 @@ function formatKey(e) {
 // --- Comunicación con el background ---
 
 function sendToBackground(msg) {
-  chrome.runtime.sendMessage(msg).catch(() => {
-    // El service worker puede estar inactivo; Chrome lo despertará en el próximo mensaje
-  });
+  try {
+    // chrome.runtime.id es null cuando el contexto fue invalidado (extensión recargada)
+    if (!chrome.runtime?.id) return;
+    chrome.runtime.sendMessage(msg).catch(() => {});
+  } catch (_) {
+    // Contexto invalidado: recargar la página restaura la conexión
+  }
 }
