@@ -1,67 +1,73 @@
-// Confirmación de que el script se ha inyectado correctamente (visible en F12 de la pestaña)
 console.log('[GP] Content script cargado en:', location.href);
 
-// Cadenas que Google Fotos muestra cuando una búsqueda no tiene resultados.
-// Hay que confirmar experimentalmente que nunca aparecen con resultados presentes.
 const NO_RESULTS_STRINGS = [
   'Sin resultados',
   'Prueba con una palabra clave sinónima o más general'
 ];
 
-// --- Detección de "sin resultados" en el DOM ---
+// --- Detección de estado del DOM ---
 
 let debounceTimer = null;
 
 function checkDomState() {
   const text = document.body.innerText;
   const noResults = NO_RESULTS_STRINGS.some(s => text.includes(s));
+
+  // Solo actuar en la vista de resultados de búsqueda (no en foto individual)
+  const inSearch = location.href.includes('/search/') && !location.href.includes('/photo/');
+
+  if (inSearch && !noResults) {
+    if (tryClickMas()) {
+      // Hay botón "Más" → lo pulsamos; el MutationObserver volverá a disparar
+      // cuando carguen los nuevos resultados
+      return;
+    }
+    // Sin botón "Más" y sin "sin resultados" → todos los resultados están cargados
+    sendToBackground({ type: 'SEARCH_READY', url: location.href });
+  }
+
   sendToBackground({ type: 'DOM_STATE', noResults, url: location.href });
 }
 
-// Debounce: espera 600ms tras el último cambio para evitar spam de mensajes
+// Pulsa el botón "Más" si está presente en la página
+function tryClickMas() {
+  for (const el of document.querySelectorAll('button, [role="button"]')) {
+    if (el.textContent.trim() === 'Más') {
+      el.click();
+      console.log('[GP] Botón "Más" pulsado — esperando más resultados...');
+      return true;
+    }
+  }
+  return false;
+}
+
+// Debounce: 1000ms para dar tiempo a que carguen los nuevos resultados tras "Más"
 const observer = new MutationObserver(() => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(checkDomState, 600);
+  debounceTimer = setTimeout(checkDomState, 1000);
 });
 
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-  characterData: true
-});
+observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
-// Comprobación inicial al cargar el script
 setTimeout(checkDomState, 1500);
 
 // --- Captura de teclado ---
 
-// Teclas de interés para el flujo de descarga
-const INTERESTING_KEYS = new Set([
-  'Enter', 'Escape', 'ArrowRight', 'ArrowLeft', 'd', 'D', '/'
-]);
+const INTERESTING_KEYS = new Set(['Enter', 'Escape', 'ArrowRight', 'ArrowLeft', 'd', 'D', '/']);
 
 document.addEventListener('keydown', (e) => {
   const label = formatKey(e);
   console.log(`[GP] Tecla: ${label}`);
   sendToBackground({
     type: 'KEYDOWN',
-    key: e.key,
-    code: e.code,
-    shift: e.shiftKey,
-    ctrl: e.ctrlKey,
-    alt: e.altKey,
-    label,
-    interesting: INTERESTING_KEYS.has(e.key),
-    ts: Date.now()
+    key: e.key, code: e.code,
+    shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey,
+    label, interesting: INTERESTING_KEYS.has(e.key), ts: Date.now()
   });
-}, true); // capture phase para ver la tecla antes de que la consuma la página
+}, true);
 
 function formatKey(e) {
-  const mods = [
-    e.ctrlKey  && 'CTRL',
-    e.shiftKey && 'SHIFT',
-    e.altKey   && 'ALT'
-  ].filter(Boolean);
+  const mods = [e.ctrlKey && 'CTRL', e.shiftKey && 'SHIFT', e.altKey && 'ALT'].filter(Boolean);
   return [...mods, e.key].join('+');
 }
 
@@ -69,10 +75,7 @@ function formatKey(e) {
 
 function sendToBackground(msg) {
   try {
-    // chrome.runtime.id es null cuando el contexto fue invalidado (extensión recargada)
     if (!chrome.runtime?.id) return;
     chrome.runtime.sendMessage(msg).catch(() => {});
-  } catch (_) {
-    // Contexto invalidado: recargar la página restaura la conexión
-  }
+  } catch (_) {}
 }

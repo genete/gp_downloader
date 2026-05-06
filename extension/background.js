@@ -72,20 +72,18 @@ chrome.downloads.onChanged.addListener(delta => {
 // --- Mensajes desde content.js ---
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.type === 'DOM_STATE') {
-    if (msg.noResults) {
-      console.log('[GP] DOM: sin resultados detectado');
-      writeSignal('no_results', { noResults: true, url: msg.url });
-    } else {
-      // Solo loguear; Python asume "hay resultados" si no llega gp_signal_no_results
-      console.log('[GP] DOM: resultados presentes');
-    }
+  if (msg.type === 'DOM_STATE' && msg.noResults) {
+    console.log('[GP] DOM: sin resultados detectado');
+    writeSignal('no_results', { noResults: true, url: msg.url });
+  }
+
+  if (msg.type === 'SEARCH_READY') {
+    console.log('[GP] Búsqueda lista — todos los resultados cargados');
+    writeSignal('search_ready', { url: msg.url });
   }
 
   if (msg.type === 'KEYDOWN' && msg.interesting) {
     console.log(`[GP] Tecla interesante: ${msg.label}`);
-    // En esta fase las teclas las genera el usuario a mano.
-    // Más adelante Python leerá gp_signal_download_done y enviará teclas vía AHK.
   }
 
   sendResponse({ ok: true });

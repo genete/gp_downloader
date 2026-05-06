@@ -107,14 +107,19 @@ def run():
             _search(mes, anyo)
 
             print(f'  Esperando resultado de búsqueda...', end='', flush=True)
-            signal = watcher.wait(['no_results'], timeout=SEARCH_TIMEOUT, stop_event=_quit)
+            signal = watcher.wait(['no_results', 'search_ready'], timeout=SEARCH_TIMEOUT, stop_event=_quit)
 
-            if signal:
+            if signal is None:
+                print(' TIMEOUT sin señal → saltando mes')
+                state.mark(months, mes, anyo, 'pendiente')
+                continue
+
+            if signal['_type'] == 'no_results':
                 print(' sin resultados → saltando')
                 state.mark(months, mes, anyo, 'saltado')
                 continue
 
-            print(' hay resultados')
+            print(' todos los resultados cargados')
             count, ok = _download_month(mes, anyo)
 
             if _quit.is_set() or not ok:
