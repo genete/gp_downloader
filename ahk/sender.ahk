@@ -33,6 +33,12 @@ switch key {
     case "escape":  Send("{Escape}")
     case "slash":   Send("/")
     case "ctrl_a":  Send("^a")
+    case "type":
+        if A_Args.Length < 2 {
+            MsgBox("Falta el texto a escribir")
+            ExitApp(3)
+        }
+        SendText(A_Args[2])  ; SendText no interpreta {}, +, ^ como especiales
     default:
         MsgBox("Tecla desconocida: " key)
         ExitApp(3)
