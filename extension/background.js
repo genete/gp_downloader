@@ -41,14 +41,27 @@ async function executeCommand(cmd) {
 
   if (cmd.action === 'search') {
     const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+    if (tab) await searchViaSearchBar(tab.id, cmd.query);
+    return;
+  }
+
+  if (cmd.action === 'navigate_relevance') {
+    const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
     if (tab) {
-      const url = `https://photos.google.com/search/${encodeURIComponent(cmd.query)}`;
+      const url = cmd.url.endsWith('/relevance') ? cmd.url : cmd.url + '/relevance';
+      console.log(`[GP] navigate_relevance → ${url}`);
       await chrome.tabs.update(tab.id, {url});
     }
     return;
   }
 
-  // open_first / download / next / back → content.js
+  if (cmd.action === 'open_first') {
+    const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+    if (tab) await openFirstPhoto(tab.id);
+    return;
+  }
+
+  // download / next / back → content.js
   const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
   if (tab) {
     chrome.tabs.sendMessage(tab.id, cmd).catch(e => {
@@ -83,15 +96,139 @@ chrome.downloads.onChanged.addListener(delta => {
 
 // --- Mensajes desde content.js ---
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SEARCH_READY')
     sendSignal('search_ready', {url: msg.url});
   if (msg.type === 'DOM_STATE' && msg.noResults)
     sendSignal('no_results', {url: msg.url});
   if (msg.type === 'PHOTO_OPENED')
     sendSignal('photo_opened', {photoUrl: msg.photoUrl});
+  if (msg.type === 'NO_MORE_PHOTOS')
+    sendSignal('no_more_photos', {});
+  if (msg.type === 'TRUSTED_CLICK') {
+    console.log(`[GP] TRUSTED_CLICK recibido en (${msg.x}, ${msg.y}), tab=${sender.tab?.id}`);
+    trustedClick(sender.tab.id, msg.x, msg.y);
+  }
   sendResponse({ok: true});
 });
+
+async function searchViaSearchBar(tabId, query) {
+  console.log(`[GP] searchViaSearchBar: "${query}"`);
+  try {
+    await chrome.debugger.attach({tabId}, '1.3');
+
+    // Localizar el input de búsqueda y obtener sus coordenadas
+    const {result: pos} = await chrome.debugger.sendCommand({tabId}, 'Runtime.evaluate', {
+      expression: `(() => {
+        const el = [...document.querySelectorAll('input')].find(i =>
+          i.offsetWidth > 0 && (
+            i.closest('[role="search"]') ||
+            (i.getAttribute('aria-label') || '').toLowerCase().includes('buscar') ||
+            (i.getAttribute('placeholder') || '').toLowerCase().includes('buscar')
+          )
+        );
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)};
+      })()`,
+      returnByValue: true
+    });
+
+    if (pos.value) {
+      console.log(`[GP] searchViaSearchBar: input en (${pos.value.x}, ${pos.value.y})`);
+      // Clic trusted para focalizar el input
+      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchMouseEvent',
+        {type: 'mousePressed', x: pos.value.x, y: pos.value.y, button: 'left', clickCount: 1, buttons: 1});
+      await sleep(50);
+      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchMouseEvent',
+        {type: 'mouseReleased', x: pos.value.x, y: pos.value.y, button: 'left', clickCount: 1});
+    } else {
+      // Fallback: shortcut /
+      console.warn('[GP] searchViaSearchBar: input no encontrado, usando /');
+      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
+        {type: 'keyDown', key: '/', code: 'Slash', windowsVirtualKeyCode: 191, nativeVirtualKeyCode: 191});
+      await sleep(30);
+      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
+        {type: 'keyUp', key: '/', code: 'Slash', windowsVirtualKeyCode: 191});
+    }
+    await sleep(500);
+
+    // Escribir la consulta
+    await chrome.debugger.sendCommand({tabId}, 'Input.insertText', {text: query});
+    await sleep(1200);
+
+    // Enter para confirmar
+    await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
+      {type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13});
+    await sleep(50);
+    await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
+      {type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13});
+
+    await chrome.debugger.detach({tabId});
+    console.log(`[GP] searchViaSearchBar: "${query}" enviado OK`);
+  } catch (e) {
+    console.error('[GP] searchViaSearchBar error:', e.message);
+    try { await chrome.debugger.detach({tabId}); } catch (_) {}
+  }
+}
+
+async function openFirstPhoto(tabId) {
+  console.log('[GP] openFirstPhoto: Tab hasta foto + Enter');
+  try {
+    await chrome.debugger.attach({tabId}, '1.3');
+    // Tab hasta que el elemento activo sea un enlace a foto (máx 15 tabs)
+    for (let i = 0; i < 15; i++) {
+      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
+        {type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9});
+      await sleep(30);
+      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
+        {type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9});
+      await sleep(120);
+      const {result} = await chrome.debugger.sendCommand({tabId}, 'Runtime.evaluate', {
+        expression: `document.activeElement?.href?.includes('/photo/') ?? false`,
+        returnByValue: true
+      });
+      if (result.value === true) {
+        console.log(`[GP] openFirstPhoto: foto enfocada tras ${i + 1} Tab(s)`);
+        break;
+      }
+    }
+    // Enter para abrir la foto
+    for (const type of ['keyDown', 'keyUp']) {
+      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
+        {type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13});
+      await sleep(50);
+    }
+    await chrome.debugger.detach({tabId});
+    console.log('[GP] openFirstPhoto: completado');
+  } catch (e) {
+    console.error('[GP] openFirstPhoto error:', e.message);
+    try { await chrome.debugger.detach({tabId}); } catch (_) {}
+  }
+}
+
+async function trustedClick(tabId, x, y) {
+  console.log(`[GP] trustedClick: iniciando attach a tab ${tabId}`);
+  try {
+    await chrome.debugger.attach({tabId}, '1.3');
+    console.log('[GP] trustedClick: attach OK');
+    await sleep(100);
+    await chrome.debugger.sendCommand({tabId}, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1
+    });
+    console.log('[GP] trustedClick: mousePressed OK');
+    await sleep(50);
+    await chrome.debugger.sendCommand({tabId}, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x, y, button: 'left', clickCount: 1, buttons: 0
+    });
+    console.log('[GP] trustedClick: mouseReleased OK');
+    await chrome.debugger.detach({tabId});
+    console.log(`[GP] trustedClick: COMPLETADO en (${x}, ${y})`);
+  } catch (e) {
+    console.error('[GP] trustedClick ERROR:', e.message);
+    try { await chrome.debugger.detach({tabId}); } catch (_) {}
+  }
+}
 
 // Keepalive: content.js abre un puerto que mantiene vivo el service worker
 chrome.runtime.onConnect.addListener(port => {

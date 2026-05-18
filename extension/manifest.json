@@ -3,7 +3,7 @@
   "name": "GP Downloader Helper",
   "version": "0.2.0",
   "description": "Observador y controlador de Google Fotos para descarga masiva",
-  "permissions": ["downloads", "tabs"],
+  "permissions": ["downloads", "tabs", "debugger"],
   "host_permissions": [
     "https://photos.google.com/*",
     "http://127.0.0.1:8765/*"

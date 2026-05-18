@@ -75,9 +75,9 @@ def _download_month(mes: str, anyo: str) -> tuple[int, bool]:
         watcher.send_command({'action': 'next'})
         sig = watcher.wait(['photo_opened'], timeout=10, stop_event=_quit)
         if sig is None and not _quit.is_set():
-            print(f'  TIMEOUT esperando siguiente foto — abortando mes')
+            print(f'  sin foto siguiente → fin de mes ({count} fotos)')
             watcher.send_command({'action': 'back'})
-            return count, False
+            return count, True
 
     return count, False
 
@@ -101,7 +101,7 @@ def run():
 
             _search(mes, anyo)
 
-            print(f'  Esperando resultado de búsqueda...', end='', flush=True)
+            print(f'  Buscando...', end='', flush=True)
             signal = watcher.wait(['no_results', 'search_ready'], timeout=SEARCH_TIMEOUT, stop_event=_quit)
 
             if signal is None:
@@ -114,7 +114,24 @@ def run():
                 state.mark(months, mes, anyo, 'saltado')
                 continue
 
-            print(' todos los resultados cargados')
+            # Navegar a /relevance para desbloquear todas las fotos del mes
+            print(f' OK — cargando /relevance...', end='', flush=True)
+            watcher.drain()
+            watcher.send_command({'action': 'navigate_relevance', 'url': signal['url']})
+
+            signal2 = watcher.wait(['no_results', 'search_ready'], timeout=SEARCH_TIMEOUT, stop_event=_quit)
+            if signal2 is None:
+                print(' TIMEOUT en /relevance → saltando mes')
+                state.mark(months, mes, anyo, 'pendiente')
+                continue
+
+            if signal2['type'] == 'no_results':
+                print(' sin resultados → saltando')
+                state.mark(months, mes, anyo, 'saltado')
+                continue
+
+            print(f' listo')
+            print(f'  URL: {signal2.get("url", "?")}')
             count, ok = _download_month(mes, anyo)
 
             if _quit.is_set() or not ok:
@@ -131,3 +148,7 @@ def run():
 
     finally:
         pass
+
+
+if __name__ == '__main__':
+    run()
