@@ -1,45 +1,87 @@
 import json
+import queue
+import threading
 import time
-from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 
-_signals_dir: Path | None = None
+PORT = 8765
+
+_signals: queue.Queue = queue.Queue()
+_commands: queue.Queue = queue.Queue()
 
 
-def start(signals_dir: Path):
-    global _signals_dir
-    signals_dir.mkdir(parents=True, exist_ok=True)
-    _signals_dir = signals_dir
+class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
+class _Handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self._send(204, {})
+
+    def do_POST(self):
+        length = int(self.headers.get('Content-Length', 0))
+        try:
+            data = json.loads(self.rfile.read(length))
+            _signals.put(data)
+            self._send(200, {'ok': True})
+        except Exception as e:
+            self._send(400, {'error': str(e)})
+
+    def do_GET(self):
+        if self.path != '/command':
+            self._send(404, {})
+            return
+        try:
+            cmd = _commands.get(timeout=0.4)
+            self._send(200, cmd)
+        except queue.Empty:
+            self._send(200, {'action': 'idle'})
+
+    def _send(self, code: int, data: dict):
+        body = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def start():
+    server = _ThreadedHTTPServer(('127.0.0.1', PORT), _Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f'[watcher] HTTP en 127.0.0.1:{PORT}')
+
+
+def send_command(cmd: dict):
+    _commands.put(cmd)
 
 
 def drain():
-    """Descarta todas las señales pendientes."""
-    if _signals_dir is None:
-        return
-    for f in _signals_dir.glob('gp_signal_*.json'):
+    while not _signals.empty():
         try:
-            f.unlink(missing_ok=True)
-        except OSError:
-            pass
+            _signals.get_nowait()
+        except queue.Empty:
+            break
 
 
 def wait(expected_types: list[str], timeout: float, stop_event=None) -> dict | None:
-    """Polling cada 0.5s hasta encontrar una señal del tipo esperado o agotar timeout.
-    stop_event: threading.Event que interrumpe la espera inmediatamente si se activa."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if stop_event is not None and stop_event.is_set():
             return None
-        for signal_type in expected_types:
-            files = sorted(_signals_dir.glob(f'gp_signal_{signal_type}_*.json'))
-            if not files:
-                continue
-            f = files[0]
-            try:
-                data = json.loads(f.read_text(encoding='utf-8'))
-                f.unlink(missing_ok=True)
-                data['_type'] = signal_type
-                return data
-            except Exception as e:
-                print(f'[watcher] Error leyendo {f.name}: {e}')
-        time.sleep(0.5)
+        try:
+            signal = _signals.get(timeout=0.3)
+            sig_type = signal.get('type', '')
+            if sig_type in expected_types:
+                return signal
+            print(f'[watcher] Señal ignorada: {sig_type}')
+        except queue.Empty:
+            pass
     return None

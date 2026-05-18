@@ -1,10 +1,13 @@
 {
   "manifest_version": 3,
   "name": "GP Downloader Helper",
-  "version": "0.1.0",
-  "description": "Observador de Google Fotos para el sistema de descarga masiva",
+  "version": "0.2.0",
+  "description": "Observador y controlador de Google Fotos para descarga masiva",
   "permissions": ["downloads", "tabs"],
-  "host_permissions": ["https://photos.google.com/*"],
+  "host_permissions": [
+    "https://photos.google.com/*",
+    "http://127.0.0.1:8765/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

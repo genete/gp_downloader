@@ -5,7 +5,8 @@
       "Bash(Select-Object FullName)",
       "PowerShell(cmd /c dir \"C:\\\\Program Files\\\\AutoHotkey\\\\v2\")",
       "PowerShell(& \"C:\\\\Program Files\\\\AutoHotkey\\\\v2\\\\AutoHotkey64.exe\" \"C:\\\\Users\\\\carlo\\\\Documents\\\\gp_downloader\\\\ahk\\\\sender.ahk\" \"enter\")",
-      "PowerShell(& \"C:\\\\Program Files\\\\AutoHotkey\\\\v2\\\\AutoHotkey64.exe\" \"C:\\\\Users\\\\carlo\\\\Documents\\\\gp_downloader\\\\ahk\\\\sender.ahk\" \"shift_d\")"
+      "PowerShell(& \"C:\\\\Program Files\\\\AutoHotkey\\\\v2\\\\AutoHotkey64.exe\" \"C:\\\\Users\\\\carlo\\\\Documents\\\\gp_downloader\\\\ahk\\\\sender.ahk\" \"shift_d\")",
+      "PowerShell(Get-Process *)"
     ]
   }
 }

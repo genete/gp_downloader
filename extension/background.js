@@ -1,50 +1,69 @@
-// IDs de descargas creadas por nosotros (señales JSON) para ignorarlas en el monitor
-const ownDownloadIds = new Set();
+const PYTHON = 'http://127.0.0.1:8765';
 
-// URL de Google Fotos en el momento de iniciar cada descarga (id → url)
+const ownDownloadIds  = new Set();
 const downloadPhotoUrl = new Map();
 
-// --- Escritura de señales JSON en ~/Downloads/ ---
+// --- Señales hacia Python ---
 
-// Escribe un archivo JSON en la carpeta de descargas del sistema.
-// El nombre lleva timestamp para que cada señal sea un archivo único.
-// Python (watchdog) reacciona al evento de creación, lo lee y lo borra.
-async function writeSignal(type, data) {
-  const filename = `gp_signals/gp_signal_${type}_${Date.now()}.json`;
-  const payload = { ...data, ts: Date.now() };
-  const json = JSON.stringify(payload, null, 2);
-
-  // Codificación UTF-8 → base64 sin usar APIs del DOM (no disponibles en SW)
-  const bytes = new TextEncoder().encode(json);
-  const chars = Array.from(bytes, b => String.fromCodePoint(b)).join('');
-  const b64 = btoa(chars);
-
-  return new Promise(resolve => {
-    chrome.downloads.download(
-      {
-        url: `data:application/json;base64,${b64}`,
-        filename,
-        saveAs: false,
-        conflictAction: 'uniquify'
-      },
-      id => {
-        ownDownloadIds.add(id);
-        resolve(id);
-      }
-    );
-  });
+async function sendSignal(type, data = {}) {
+  try {
+    await fetch(`${PYTHON}/signal`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type, ...data})
+    });
+  } catch (_) {
+    // Python aún no está corriendo
+  }
 }
 
-// --- Monitor de descargas reales (no señales) ---
+// --- Polling de comandos desde Python ---
+
+async function pollCommands() {
+  while (true) {
+    try {
+      const resp = await fetch(`${PYTHON}/command`);
+      if (resp.ok) {
+        const cmd = await resp.json();
+        if (cmd.action && cmd.action !== 'idle') {
+          await executeCommand(cmd);
+        }
+      }
+    } catch (_) {
+      await sleep(1000);
+    }
+    await sleep(200);
+  }
+}
+
+async function executeCommand(cmd) {
+  console.log('[GP] Comando:', cmd.action);
+
+  if (cmd.action === 'search') {
+    const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+    if (tab) {
+      const url = `https://photos.google.com/search/${encodeURIComponent(cmd.query)}`;
+      await chrome.tabs.update(tab.id, {url});
+    }
+    return;
+  }
+
+  // open_first / download / next / back → content.js
+  const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+  if (tab) {
+    chrome.tabs.sendMessage(tab.id, cmd).catch(e => {
+      console.warn('[GP] sendMessage error:', e.message);
+    });
+  }
+}
+
+// --- Monitor de descargas reales ---
 
 chrome.downloads.onCreated.addListener(async item => {
   if (ownDownloadIds.has(item.id)) return;
-
-  // Capturar la URL de la foto en el momento del SHIFT+D (antes de que navegue)
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
   const photoUrl = tab?.url ?? '';
   downloadPhotoUrl.set(item.id, photoUrl);
-
   console.log(`[GP] Descarga iniciada (id=${item.id}) url=${photoUrl}`);
 });
 
@@ -52,39 +71,35 @@ chrome.downloads.onChanged.addListener(delta => {
   if (ownDownloadIds.has(delta.id)) return;
   if (!delta.state || delta.state.current !== 'complete') return;
 
-  chrome.downloads.search({ id: delta.id }, ([item]) => {
+  chrome.downloads.search({id: delta.id}, ([item]) => {
     if (!item) return;
-
     const basename = item.filename.split(/[/\\]/).pop();
     const photoUrl = downloadPhotoUrl.get(delta.id) ?? '';
     downloadPhotoUrl.delete(delta.id);
-
-    console.log(`[GP] Descarga completa: ${basename} url=${photoUrl}`);
-
-    writeSignal('download_done', {
-      filename: item.filename,   // ruta completa con el nombre que dio Chrome
-      basename,
-      photoUrl                   // URL única de la foto → Python detecta fin de mes
-    });
+    console.log(`[GP] Descarga completa: ${basename}`);
+    sendSignal('download_done', {filename: item.filename, basename, photoUrl});
   });
 });
 
 // --- Mensajes desde content.js ---
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.type === 'DOM_STATE' && msg.noResults) {
-    console.log('[GP] DOM: sin resultados detectado');
-    writeSignal('no_results', { noResults: true, url: msg.url });
-  }
-
-  if (msg.type === 'SEARCH_READY') {
-    console.log('[GP] Búsqueda lista — todos los resultados cargados');
-    writeSignal('search_ready', { url: msg.url });
-  }
-
-  if (msg.type === 'KEYDOWN' && msg.interesting) {
-    console.log(`[GP] Tecla interesante: ${msg.label}`);
-  }
-
-  sendResponse({ ok: true });
+  if (msg.type === 'SEARCH_READY')
+    sendSignal('search_ready', {url: msg.url});
+  if (msg.type === 'DOM_STATE' && msg.noResults)
+    sendSignal('no_results', {url: msg.url});
+  if (msg.type === 'PHOTO_OPENED')
+    sendSignal('photo_opened', {photoUrl: msg.photoUrl});
+  sendResponse({ok: true});
 });
+
+// Keepalive: content.js abre un puerto que mantiene vivo el service worker
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name === 'keepalive') {
+    console.log('[GP] Keepalive conectado');
+  }
+});
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+pollCommands();
