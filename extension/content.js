@@ -11,17 +11,28 @@ const MESES_MAP = {
 };
 
 function readPhotoDate() {
-  // Busca el patrón de fecha en cualquier nodo hoja del DOM
-  // (incluyendo elementos de accesibilidad ocultos visualmente)
-  // Ejemplos: "29 jun 2024", "Foto - Horizontal - 29 jun 2024, 20:28:45"
-  const RE = /\b(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic)\.?\s+(\d{4})\b/i;
+  const MESES_RE = '(ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic)';
+  // Patrón prioritario: aria-label de la foto actual ("Foto - Tipo - DD mes YYYY, HH:MM:SS")
+  // Este elemento siempre refleja la foto en pantalla, no el encabezado de grupo
+  const RE_FOTO = new RegExp(`^Foto\\s*[-–]\\s*\\S.*?\\b(\\d{1,2})\\s+${MESES_RE}\\.?\\s+(\\d{4})\\b`, 'i');
+  // Fallback: cualquier fecha en un nodo hoja
+  const RE_ANY  = new RegExp(`\\b(\\d{1,2})\\s+${MESES_RE}\\.?\\s+(\\d{4})\\b`, 'i');
+
+  const parse = (m, dayIdx, monIdx, yearIdx) => {
+    const month = MESES_MAP[m[monIdx].toLowerCase()];
+    if (month) return {year: parseInt(m[yearIdx]), month, day: parseInt(m[dayIdx])};
+    return null;
+  };
+
   for (const el of document.querySelectorAll('*')) {
     if (el.children.length > 0) continue;
-    const m = RE.exec(el.textContent);
-    if (m) {
-      const month = MESES_MAP[m[2].toLowerCase()];
-      if (month) return {year: parseInt(m[3]), month, day: parseInt(m[1])};
-    }
+    const m = RE_FOTO.exec(el.textContent);
+    if (m) return parse(m, 1, 2, 3);
+  }
+  for (const el of document.querySelectorAll('*')) {
+    if (el.children.length > 0) continue;
+    const m = RE_ANY.exec(el.textContent);
+    if (m) return parse(m, 1, 2, 3);
   }
   return null;
 }
