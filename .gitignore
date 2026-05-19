@@ -1,3 +1,12 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Estado de ejecución (generado en runtime)
+config/progress.json
+
+# Logs de depuración
+*.log
+
+# Archivos personales / temporales
+*.ods
