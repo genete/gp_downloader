@@ -46,7 +46,7 @@ async function executeCommand(cmd) {
     console.log(`[GP] navigate → ${cmd.url}`);
     await cdpDetach();  // la navegación invalida la sesión actual
     await chrome.tabs.update(tab.id, {url: cmd.url});
-    await sleep(3000);
+    await sleep(5000);  // espera generosa: la foto debe estar cargada antes de 'i'
     await cdpKey(tab.id, 'i', 'KeyI', 73);
     return;
   }
