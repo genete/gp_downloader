@@ -11,28 +11,21 @@ const MESES_MAP = {
 };
 
 function readPhotoDate() {
+  // Busca exclusivamente el aria-label de la foto actual:
+  // "Foto - Tipo - DD mes YYYY, HH:MM:SS" o "Vídeo - Tipo - DD mes YYYY, HH:MM:SS"
+  // Este elemento es específico de la foto en pantalla y no se confunde
+  // con los encabezados de grupo del panel de info (que se quedan clavados).
   const MESES_RE = '(ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic)';
-  // Patrón prioritario: aria-label de la foto actual ("Foto - Tipo - DD mes YYYY, HH:MM:SS")
-  // Este elemento siempre refleja la foto en pantalla, no el encabezado de grupo
-  const RE_FOTO = new RegExp(`^Foto\\s*[-–]\\s*\\S.*?\\b(\\d{1,2})\\s+${MESES_RE}\\.?\\s+(\\d{4})\\b`, 'i');
-  // Fallback: cualquier fecha en un nodo hoja
-  const RE_ANY  = new RegExp(`\\b(\\d{1,2})\\s+${MESES_RE}\\.?\\s+(\\d{4})\\b`, 'i');
-
-  const parse = (m, dayIdx, monIdx, yearIdx) => {
-    const month = MESES_MAP[m[monIdx].toLowerCase()];
-    if (month) return {year: parseInt(m[yearIdx]), month, day: parseInt(m[dayIdx])};
-    return null;
-  };
-
+  const RE = new RegExp(
+    `^(Foto|V[ií]deo)\\s*[-–]\\s*\\S.*?\\b(\\d{1,2})\\s+${MESES_RE}\\.?\\s+(\\d{4})\\b`, 'i'
+  );
   for (const el of document.querySelectorAll('*')) {
     if (el.children.length > 0) continue;
-    const m = RE_FOTO.exec(el.textContent);
-    if (m) return parse(m, 1, 2, 3);
-  }
-  for (const el of document.querySelectorAll('*')) {
-    if (el.children.length > 0) continue;
-    const m = RE_ANY.exec(el.textContent);
-    if (m) return parse(m, 1, 2, 3);
+    const m = RE.exec(el.textContent);
+    if (m) {
+      const month = MESES_MAP[m[3].toLowerCase()];
+      if (month) return {year: parseInt(m[4]), month, day: parseInt(m[2])};
+    }
   }
   return null;
 }
