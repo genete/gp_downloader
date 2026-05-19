@@ -40,6 +40,15 @@ function sendPhotoOpened(url, attempt = 0) {
   }
 }
 
+// --- Comunicación con background.js ---
+
+function sendToBackground(msg) {
+  try {
+    if (!chrome.runtime?.id) return;
+    chrome.runtime.sendMessage(msg).catch(() => {});
+  } catch (_) {}
+}
+
 // --- Detección de cambios de URL ---
 
 let lastHref = location.href;
@@ -59,7 +68,12 @@ const observer = new MutationObserver(() => {
   debounceTimer = setTimeout(checkDomState, 300);
 });
 observer.observe(document.body, {childList: true, subtree: true});
-setTimeout(checkDomState, 1500);
+
+// Si el script se carga directamente sobre una foto (navegación por URL directa),
+// lastHref === location.href y checkDomState no detectaría el cambio
+if (location.href.includes('/photo/')) {
+  sendPhotoOpened(location.href);
+}
 
 // --- Comandos desde background.js ---
 
@@ -67,9 +81,8 @@ chrome.runtime.onMessage.addListener((cmd, _sender, sendResponse) => {
   console.log('[GP] Comando:', cmd.action);
 
   if (cmd.action === 'current_photo') {
-    // El usuario ya tiene una foto abierta antes de que Python arrancara
     if (location.href.includes('/photo/')) {
-      setTimeout(() => sendPhotoOpened(location.href), 500);
+      sendPhotoOpened(location.href);
     }
     sendResponse({ok: true});
   }
@@ -101,8 +114,7 @@ chrome.runtime.onMessage.addListener((cmd, _sender, sendResponse) => {
     const check = setInterval(() => {
       if (location.href !== prevUrl && location.href.includes('/photo/')) {
         clearInterval(check);
-        // Esperar a que renderice la info antes de leer la fecha
-        setTimeout(() => sendPhotoOpened(location.href), 1500);
+        sendPhotoOpened(location.href);
       }
     }, 100);
     setTimeout(() => clearInterval(check), 8000);
@@ -115,12 +127,3 @@ chrome.runtime.onMessage.addListener((cmd, _sender, sendResponse) => {
 
   return true;
 });
-
-// --- Comunicación con background.js ---
-
-function sendToBackground(msg) {
-  try {
-    if (!chrome.runtime?.id) return;
-    chrome.runtime.sendMessage(msg).catch(() => {});
-  } catch (_) {}
-}
