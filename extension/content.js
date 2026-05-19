@@ -32,10 +32,10 @@ function sendPhotoOpened(url, attempt = 0) {
   if (date) {
     console.log(`[GP] PHOTO_OPENED — ${url} — fecha:`, date);
     sendToBackground({type: 'PHOTO_OPENED', photoUrl: url, date});
-  } else if (attempt < 10) {
-    setTimeout(() => sendPhotoOpened(url, attempt + 1), 500);
+  } else if (attempt < 25) {
+    setTimeout(() => sendPhotoOpened(url, attempt + 1), 200);
   } else {
-    console.warn('[GP] PHOTO_OPENED — fecha no encontrada tras 5s:', url);
+    console.warn('[GP] PHOTO_OPENED — fecha no encontrada tras ~5s:', url);
     sendToBackground({type: 'PHOTO_OPENED', photoUrl: url, date: null});
   }
 }
@@ -65,7 +65,7 @@ function checkDomState() {
 
 const observer = new MutationObserver(() => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(checkDomState, 300);
+  debounceTimer = setTimeout(checkDomState, 50);
 });
 observer.observe(document.body, {childList: true, subtree: true});
 
