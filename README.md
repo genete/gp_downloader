@@ -81,6 +81,8 @@ python -m orchestrator.main
 | `p` | Pausar al terminar la foto actual |
 | `q` | Guardar estado y salir |
 
+> **Importante:** la pestaña de Google Fotos debe permanecer activa y enfocada durante toda la ejecución. Si se enfoca otra pestaña o ventana del navegador, los comandos de teclado se enviarán a esa pestaña y el proceso se detendrá. Usa otro navegador o dispositivo para navegar mientras el script corre.
+
 ## Archivos descargados
 
 ```
