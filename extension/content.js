@@ -11,11 +11,12 @@ const MESES_MAP = {
 };
 
 function readPhotoDate() {
-  // Busca el patrón de fecha en cualquier elemento visible del DOM
+  // Busca el patrón de fecha en cualquier nodo hoja del DOM
+  // (incluyendo elementos de accesibilidad ocultos visualmente)
   // Ejemplos: "29 jun 2024", "Foto - Horizontal - 29 jun 2024, 20:28:45"
   const RE = /\b(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.?\s+(\d{4})\b/i;
   for (const el of document.querySelectorAll('*')) {
-    if (el.children.length > 0 || el.offsetWidth === 0) continue;
+    if (el.children.length > 0) continue;
     const m = RE.exec(el.textContent);
     if (m) {
       const month = MESES_MAP[m[2].toLowerCase()];
