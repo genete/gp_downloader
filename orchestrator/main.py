@@ -116,23 +116,25 @@ def run():
         basename = dl.get('basename', '')
 
         if not date:
-            print(f' ERROR: fecha no detectada — abortando')
-            print('  Comprueba que el panel de info de Google Fotos está visible.')
-            break
-
-        mes  = MESES[date['month']]
-        anyo = str(date['year'])
-        try:
-            dest = move_to_month(filename, mes, anyo)
-            count += 1
-            session_count += 1
-            print(f' {basename} → {dest.parent.name}/')
-            # Solo guardar progreso cuando la descarga fue exitosa
-            progress['downloaded'] = count
-            progress['last_url']   = photo_url
+            print(f' SIN FECHA — saltando ({photo_url})')
+            print(f'  Archivo sin clasificar: {basename}')
+            # Guardamos la URL para no volver a ella en el siguiente resume
+            progress['last_url'] = photo_url
             _save_progress(progress)
-        except FileNotFoundError as e:
-            print(f' ERROR moviendo: {e}')
+        else:
+            mes  = MESES[date['month']]
+            anyo = str(date['year'])
+            try:
+                dest = move_to_month(filename, mes, anyo)
+                count += 1
+                session_count += 1
+                print(f' {basename} → {dest.parent.name}/')
+                # Solo guardar progreso cuando la descarga fue exitosa
+                progress['downloaded'] = count
+                progress['last_url']   = photo_url
+                _save_progress(progress)
+            except FileNotFoundError as e:
+                print(f' ERROR moviendo: {e}')
 
         if _pause.is_set():
             print(f'Pausado. Descargadas esta sesión: {session_count}. Total: {count}')
