@@ -39,6 +39,15 @@ async function pollCommands() {
 async function executeCommand(cmd) {
   console.log('[GP] Comando:', cmd.action);
 
+  if (cmd.action === 'navigate') {
+    const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+    if (tab) {
+      console.log(`[GP] navigate → ${cmd.url}`);
+      await chrome.tabs.update(tab.id, {url: cmd.url});
+    }
+    return;
+  }
+
   if (cmd.action === 'open_first') {
     const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
     if (tab) await openFirstPhoto(tab.id);

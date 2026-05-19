@@ -46,22 +46,43 @@ def run():
     watcher.start()
     threading.Thread(target=_console, daemon=True).start()
 
-    progress = _load_progress()
-    count = progress.get('downloaded', 0)
-    print(f'Fotos descargadas en sesiones anteriores: {count}')
-    print('Pon Google Fotos en la cuadrícula donde quieres empezar y pulsa Enter aquí...')
-    try:
-        input()
-    except EOFError:
-        pass
+    progress  = _load_progress()
+    count     = progress.get('downloaded', 0)
+    last_url  = progress.get('last_url', '')
 
-    # Abrir la primera foto visible
+    print(f'Fotos descargadas en sesiones anteriores: {count}')
+
     watcher.drain()
-    watcher.send_command({'action': 'open_first'})
-    sig = watcher.wait(['photo_opened'], timeout=20, stop_event=_quit)
-    if sig is None:
-        print('No se pudo abrir la primera foto — ¿está Google Fotos en la cuadrícula?')
-        return
+
+    if last_url:
+        # Reanudar: navegar directamente a la última foto descargada
+        print(f'Reanudando desde última URL guardada...')
+        watcher.send_command({'action': 'navigate', 'url': last_url})
+        sig = watcher.wait(['photo_opened'], timeout=20, stop_event=_quit)
+        if sig is None:
+            print('No se pudo navegar a la última URL — iniciando desde la cuadrícula')
+            last_url = ''
+
+        if last_url:
+            # Avanzar una foto más allá de la última descargada
+            print('Avanzando a la siguiente foto no descargada...')
+            watcher.send_command({'action': 'next'})
+            sig = watcher.wait(['photo_opened'], timeout=12, stop_event=_quit)
+            if sig is None:
+                print('Sin más fotos tras la última descargada. ¡Todo completado!')
+                return
+
+    if not last_url:
+        print('Pon Google Fotos en la cuadrícula donde quieres empezar y pulsa Enter...')
+        try:
+            input()
+        except EOFError:
+            pass
+        watcher.send_command({'action': 'open_first'})
+        sig = watcher.wait(['photo_opened'], timeout=20, stop_event=_quit)
+        if sig is None:
+            print('No se pudo abrir la primera foto — ¿está Google Fotos en la cuadrícula?')
+            return
 
     session_count = 0
 
