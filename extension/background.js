@@ -39,7 +39,9 @@ async function pollCommands() {
 
 async function executeCommand(cmd) {
   console.log('[GP] Comando:', cmd.action);
-  const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
+  // Buscar la pestaña de Google Fotos; si no, usar la activa
+  const gpTabs = await chrome.tabs.query({url: 'https://photos.google.com/*'});
+  const [tab] = gpTabs.length > 0 ? gpTabs : await chrome.tabs.query({active: true, lastFocusedWindow: true});
   if (!tab) return;
 
   if (cmd.action === 'navigate') {
