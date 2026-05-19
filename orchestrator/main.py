@@ -116,6 +116,14 @@ def run():
         basename = dl.get('basename', '')
 
         if not date:
+            # Intentar abrir el panel de info y releer la fecha
+            print(f' sin fecha, abriendo panel...', end='', flush=True)
+            watcher.send_command({'action': 'open_info'})
+            watcher.send_command({'action': 'current_photo'})
+            retry_sig = watcher.wait(['photo_opened'], timeout=8, stop_event=_quit)
+            date = retry_sig.get('date') if retry_sig else None
+
+        if not date:
             print(f' SIN FECHA — saltando ({photo_url})')
             print(f'  Archivo sin clasificar: {basename}')
             # Guardamos la URL para no volver a ella en el siguiente resume

@@ -66,6 +66,11 @@ async function executeCommand(cmd) {
     return;
   }
 
+  if (cmd.action === 'open_info') {
+    await cdpKey(tab.id, 'i', 'KeyI', 73);
+    return;
+  }
+
   // back → content.js
   chrome.tabs.sendMessage(tab.id, cmd).catch(e => {
     console.warn('[GP] sendMessage error:', e.message);
