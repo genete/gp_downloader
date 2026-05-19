@@ -11,20 +11,18 @@ const MESES_MAP = {
 };
 
 function readPhotoDate() {
-  // Formato esperado: "30 jun 2024" o "30 jun. 2024"
-  const el = [...document.querySelectorAll('.R9U8ab')].find(e =>
-    /^\d{1,2} [a-z]{3,5}\.? \d{4}$/i.test(e.textContent.trim())
-  );
-  if (!el) return null;
-  // Eliminar punto del mes abreviado si lo tiene ("jun." → "jun")
-  const parts = el.textContent.trim().toLowerCase().replace('.', '').split(' ');
-  const [day, mon, year] = parts;
-  const month = MESES_MAP[mon];
-  if (!month) {
-    console.warn('[GP] readPhotoDate: mes no reconocido:', mon, '— texto:', el.textContent.trim());
-    return null;
+  // Busca el patrón de fecha en cualquier elemento visible del DOM
+  // Ejemplos: "29 jun 2024", "Foto - Horizontal - 29 jun 2024, 20:28:45"
+  const RE = /\b(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.?\s+(\d{4})\b/i;
+  for (const el of document.querySelectorAll('*')) {
+    if (el.children.length > 0 || el.offsetWidth === 0) continue;
+    const m = RE.exec(el.textContent);
+    if (m) {
+      const month = MESES_MAP[m[2].toLowerCase()];
+      if (month) return {year: parseInt(m[3]), month, day: parseInt(m[1])};
+    }
   }
-  return {year: parseInt(year), month, day: parseInt(day)};
+  return null;
 }
 
 // Reintenta leer la fecha hasta 5 segundos (el DOM puede tardar en renderizar)
