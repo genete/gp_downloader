@@ -1,15 +1,34 @@
+import json
 import threading
+from pathlib import Path
 
-from .config import SEARCH_TIMEOUT, DOWNLOAD_TIMEOUT
-from . import watcher, state
+from .config import DOWNLOAD_TIMEOUT, PROGRESS_FILE
+from . import watcher
 from .file_manager import move_to_month
 
 _pause = threading.Event()
 _quit  = threading.Event()
 
+MESES = {
+    1: 'enero', 2: 'febrero', 3: 'marzo', 4: 'abril',
+    5: 'mayo', 6: 'junio', 7: 'julio', 8: 'agosto',
+    9: 'septiembre', 10: 'octubre', 11: 'noviembre', 12: 'diciembre'
+}
+
+
+def _load_progress() -> dict:
+    try:
+        return json.loads(PROGRESS_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        return {'downloaded': 0, 'last_url': ''}
+
+
+def _save_progress(data: dict):
+    PROGRESS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf-8')
+
 
 def _console():
-    print('Comandos: [p] pausar al terminar el mes actual  [q] salir')
+    print('Comandos: [p] pausar  [q] salir')
     while not _quit.is_set():
         try:
             cmd = input().strip().lower()
@@ -17,137 +36,89 @@ def _console():
             break
         if cmd == 'p':
             _pause.set()
-            print('[!] Pausa solicitada — se detendrá al terminar el mes actual.')
+            print('[!] Pausa solicitada — se detendrá tras la foto actual.')
         elif cmd == 'q':
             _quit.set()
             print('[!] Saliendo...')
-
-
-def _search(mes: str, anyo: str):
-    watcher.drain()
-    watcher.send_command({'action': 'search', 'query': f'{mes} {anyo}'})
-
-
-def _download_month(mes: str, anyo: str) -> tuple[int, bool]:
-    seen_urls: set[str] = set()
-    count = 0
-
-    watcher.send_command({'action': 'open_first'})
-    sig = watcher.wait(['photo_opened'], timeout=10, stop_event=_quit)
-    if sig is None:
-        print('  no se pudo abrir la primera foto')
-        return count, False
-
-    while not _quit.is_set():
-        watcher.drain()
-        watcher.send_command({'action': 'download'})
-
-        print(f'  [{mes} {anyo}] #{count + 1} esperando descarga...', end='', flush=True)
-        signal = watcher.wait(['download_done'], timeout=DOWNLOAD_TIMEOUT, stop_event=_quit)
-
-        if signal is None:
-            print(' TIMEOUT — abortando mes')
-            watcher.send_command({'action': 'back'})
-            return count, False
-
-        photo_url = signal.get('photoUrl', '')
-        filename  = signal.get('filename', '')
-        basename  = signal.get('basename', '')
-
-        if photo_url in seen_urls:
-            print(f' {basename} → fin de mes ({count} fotos)')
-            try:
-                move_to_month(filename, mes, anyo)
-            except FileNotFoundError:
-                pass
-            watcher.send_command({'action': 'back'})
-            return count, True
-
-        seen_urls.add(photo_url)
-
-        try:
-            dest = move_to_month(filename, mes, anyo)
-            count += 1
-            print(f' {basename} → {dest.parent.name}/')
-        except FileNotFoundError as e:
-            print(f' ERROR moviendo archivo: {e}')
-
-        watcher.send_command({'action': 'next'})
-        sig = watcher.wait(['photo_opened'], timeout=10, stop_event=_quit)
-        if sig is None and not _quit.is_set():
-            print(f'  sin foto siguiente → fin de mes ({count} fotos)')
-            watcher.send_command({'action': 'back'})
-            return count, True
-
-    return count, False
 
 
 def run():
     watcher.start()
     threading.Thread(target=_console, daemon=True).start()
 
-    months = state.load()
-    pendientes = state.pending(months)
-    print(f'Meses pendientes: {len(pendientes)}')
-
+    progress = _load_progress()
+    count = progress.get('downloaded', 0)
+    print(f'Fotos descargadas en sesiones anteriores: {count}')
+    print('Pon Google Fotos en la cuadrícula donde quieres empezar y pulsa Enter aquí...')
     try:
-        for m in pendientes:
-            if _quit.is_set():
-                break
-
-            mes, anyo = m['mes'], m['anyo']
-            print(f'\n=== {mes} {anyo} ===')
-            state.mark(months, mes, anyo, 'en_curso')
-
-            _search(mes, anyo)
-
-            print(f'  Buscando...', end='', flush=True)
-            signal = watcher.wait(['no_results', 'search_ready'], timeout=SEARCH_TIMEOUT, stop_event=_quit)
-
-            if signal is None:
-                print(' TIMEOUT sin señal → saltando mes')
-                state.mark(months, mes, anyo, 'pendiente')
-                continue
-
-            if signal['type'] == 'no_results':
-                print(' sin resultados → saltando')
-                state.mark(months, mes, anyo, 'saltado')
-                continue
-
-            # Navegar a /relevance para desbloquear todas las fotos del mes
-            print(f' OK — cargando /relevance...', end='', flush=True)
-            watcher.drain()
-            watcher.send_command({'action': 'navigate_relevance', 'url': signal['url']})
-
-            signal2 = watcher.wait(['no_results', 'search_ready'], timeout=SEARCH_TIMEOUT, stop_event=_quit)
-            if signal2 is None:
-                print(' TIMEOUT en /relevance → saltando mes')
-                state.mark(months, mes, anyo, 'pendiente')
-                continue
-
-            if signal2['type'] == 'no_results':
-                print(' sin resultados → saltando')
-                state.mark(months, mes, anyo, 'saltado')
-                continue
-
-            print(f' listo')
-            print(f'  URL: {signal2.get("url", "?")}')
-            count, ok = _download_month(mes, anyo)
-
-            if _quit.is_set() or not ok:
-                state.mark(months, mes, anyo, 'pendiente')
-                if not ok:
-                    print(f'  [!] {mes} {anyo}: abortado ({count} fotos descargadas)')
-            else:
-                state.mark(months, mes, anyo, 'completado')
-                print(f'  [OK] {mes} {anyo}: {count} fotos')
-
-            if _pause.is_set():
-                print('Pausado. Vuelve a ejecutar para continuar.')
-                break
-
-    finally:
+        input()
+    except EOFError:
         pass
+
+    # Abrir la primera foto visible
+    watcher.drain()
+    watcher.send_command({'action': 'open_first'})
+    sig = watcher.wait(['photo_opened'], timeout=20, stop_event=_quit)
+    if sig is None:
+        print('No se pudo abrir la primera foto — ¿está Google Fotos en la cuadrícula?')
+        return
+
+    session_count = 0
+
+    while not _quit.is_set():
+        photo_url = sig.get('photoUrl', '')
+        date      = sig.get('date')   # {year, month, day} o None
+
+        # Etiqueta para el log
+        if date:
+            etiqueta = f'{date["day"]:02d}/{date["month"]:02d}/{date["year"]}'
+        else:
+            etiqueta = 'sin fecha'
+
+        print(f'  #{count + 1} [{etiqueta}] descargando...', end='', flush=True)
+
+        watcher.drain()
+        watcher.send_command({'action': 'download'})
+        dl = watcher.wait(['download_done'], timeout=DOWNLOAD_TIMEOUT, stop_event=_quit)
+
+        if dl is None:
+            print(' TIMEOUT — abortando')
+            break
+
+        filename = dl.get('filename', '')
+        basename = dl.get('basename', '')
+
+        if date:
+            mes  = MESES[date['month']]
+            anyo = str(date['year'])
+            try:
+                dest = move_to_month(filename, mes, anyo)
+                count += 1
+                session_count += 1
+                print(f' {basename} → {dest.parent.name}/')
+            except FileNotFoundError as e:
+                print(f' ERROR moviendo: {e}')
+        else:
+            print(f' {basename} (sin fecha — archivo no movido)')
+
+        progress['downloaded'] = count
+        progress['last_url']   = photo_url
+        _save_progress(progress)
+
+        if _pause.is_set():
+            print(f'Pausado. Descargadas esta sesión: {session_count}. Total: {count}')
+            break
+
+        # Siguiente foto
+        watcher.send_command({'action': 'next'})
+        sig = watcher.wait(['photo_opened'], timeout=12, stop_event=_quit)
+
+        if sig is None and not _quit.is_set():
+            print(f'\nSin más fotos. Sesión: {session_count}. Total: {count}')
+            break
+
+    _save_progress(progress)
+    print(f'Total acumulado: {count} fotos')
 
 
 if __name__ == '__main__':

@@ -39,22 +39,6 @@ async function pollCommands() {
 async function executeCommand(cmd) {
   console.log('[GP] Comando:', cmd.action);
 
-  if (cmd.action === 'search') {
-    const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
-    if (tab) await searchViaSearchBar(tab.id, cmd.query);
-    return;
-  }
-
-  if (cmd.action === 'navigate_relevance') {
-    const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
-    if (tab) {
-      const url = cmd.url.endsWith('/relevance') ? cmd.url : cmd.url + '/relevance';
-      console.log(`[GP] navigate_relevance → ${url}`);
-      await chrome.tabs.update(tab.id, {url});
-    }
-    return;
-  }
-
   if (cmd.action === 'open_first') {
     const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
     if (tab) await openFirstPhoto(tab.id);
@@ -111,66 +95,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   sendResponse({ok: true});
 });
-
-async function searchViaSearchBar(tabId, query) {
-  console.log(`[GP] searchViaSearchBar: "${query}"`);
-  try {
-    await chrome.debugger.attach({tabId}, '1.3');
-
-    // Localizar el input de búsqueda y obtener sus coordenadas
-    const {result: pos} = await chrome.debugger.sendCommand({tabId}, 'Runtime.evaluate', {
-      expression: `(() => {
-        const el = [...document.querySelectorAll('input')].find(i =>
-          i.offsetWidth > 0 && (
-            i.closest('[role="search"]') ||
-            (i.getAttribute('aria-label') || '').toLowerCase().includes('buscar') ||
-            (i.getAttribute('placeholder') || '').toLowerCase().includes('buscar')
-          )
-        );
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)};
-      })()`,
-      returnByValue: true
-    });
-
-    if (pos.value) {
-      console.log(`[GP] searchViaSearchBar: input en (${pos.value.x}, ${pos.value.y})`);
-      // Clic trusted para focalizar el input
-      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchMouseEvent',
-        {type: 'mousePressed', x: pos.value.x, y: pos.value.y, button: 'left', clickCount: 1, buttons: 1});
-      await sleep(50);
-      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchMouseEvent',
-        {type: 'mouseReleased', x: pos.value.x, y: pos.value.y, button: 'left', clickCount: 1});
-    } else {
-      // Fallback: shortcut /
-      console.warn('[GP] searchViaSearchBar: input no encontrado, usando /');
-      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
-        {type: 'keyDown', key: '/', code: 'Slash', windowsVirtualKeyCode: 191, nativeVirtualKeyCode: 191});
-      await sleep(30);
-      await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
-        {type: 'keyUp', key: '/', code: 'Slash', windowsVirtualKeyCode: 191});
-    }
-    await sleep(500);
-
-    // Escribir la consulta
-    await chrome.debugger.sendCommand({tabId}, 'Input.insertText', {text: query});
-    await sleep(1200);
-
-    // Enter para confirmar
-    await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
-      {type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13});
-    await sleep(50);
-    await chrome.debugger.sendCommand({tabId}, 'Input.dispatchKeyEvent',
-      {type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13});
-
-    await chrome.debugger.detach({tabId});
-    console.log(`[GP] searchViaSearchBar: "${query}" enviado OK`);
-  } catch (e) {
-    console.error('[GP] searchViaSearchBar error:', e.message);
-    try { await chrome.debugger.detach({tabId}); } catch (_) {}
-  }
-}
 
 async function openFirstPhoto(tabId) {
   console.log('[GP] openFirstPhoto: Tab hasta foto + Enter');
