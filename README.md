@@ -1,88 +1,105 @@
 # gp_downloader
 
-Descargador autónomo de fotos y vídeos de Google Fotos que simula comportamiento humano para no incumplir los Términos de Servicio.
+Descarga masiva de fotos y vídeos de Google Fotos navegando la línea temporal y clasificando cada archivo automáticamente por fecha.
 
-## ¿Cómo funciona?
+No usa la API de Google ni hace scraping agresivo. Automatiza exactamente lo que haría un usuario descargando a mano, a ritmo humano.
 
-En lugar de llamar a ninguna API ni hacer scraping agresivo, el sistema automatiza exactamente lo que haría un usuario descargando fotos a mano:
+## Cómo funciona
 
-1. Busca un mes y año concreto en Google Fotos (`/ → CTRL+A → "enero 2018" → ENTER`)
-2. Si hay resultados, descarga item a item con `SHIFT+D` avanzando con `→`
-3. Detecta el fin del mes cuando el mismo archivo aparece por segunda vez
-4. Cambia al siguiente mes y repite
-5. Organiza los archivos descargados en carpetas `mes_año/`
+1. El usuario abre la primera foto en Google Fotos y ejecuta el script
+2. El script abre el panel de información (`i`) para leer la fecha de cada foto
+3. Descarga con `Shift+D`, lee la fecha del DOM, mueve el archivo a `gp/mes_año/`
+4. Avanza con la flecha derecha y repite
+5. Al pausar o interrumpir, guarda la URL de la última foto descargada
+6. Al reanudar, navega directamente a esa foto sin recorrer las ya descargadas
 
-El ritmo es lento e intencional: una descarga cada vez, con pausas naturales entre pulsaciones.
+## Arquitectura
 
-## Componentes
+```
+Google Fotos (Chrome)
+       │
+       │  CDP (teclado: Shift+D, →, i)
+       ▼
+ background.js ──── HTTP localhost:8765 ────▶ Orquestador Python
+       │                                             │
+       │  PHOTO_OPENED {url, date}                   │  move_to_month()
+       │  download_done {filename}                   ▼
+       └────────────────────────────────▶  ~/Downloads/gp/mes_año/
+```
 
 | Componente | Tecnología | Rol |
 |---|---|---|
-| Extensión Chrome | JS / Manifest V3 | Observa el DOM y el estado de descargas |
-| Orquestador | Python 3.11+ | Dirige el flujo y gestiona archivos |
-| Automatización de teclado | AutoHotkey v2 | Envía teclas al navegador de forma fiable |
-
-## Comunicación entre componentes
-
-```
-Extensión Chrome
-      │
-      │  archivos gp_signal_*.json en ~/Downloads/
-      ▼
-Orquestador Python ──── gp_cmd.txt ────▶ AutoHotkey ──▶ Chrome (teclas)
-      │
-      ▼
-  ~/Downloads/gp/mes_año/
-```
+| `extension/background.js` | JS / Manifest V3 | Envía teclas vía CDP, monitoriza descargas |
+| `extension/content.js` | JS | Detecta cambios de URL, lee fecha del DOM |
+| `orchestrator/` | Python 3.11+ | Dirige el flujo, organiza archivos, guarda progreso |
 
 ## Requisitos
 
 - Windows 10/11
 - Google Chrome con la extensión cargada en modo desarrollador
-- Python 3.11+
-- AutoHotkey v2
+- Python 3.11+ (sin dependencias externas)
 
-## Configuración
+## Instalación
 
-Edita `config/meses.csv` con la lista de meses a descargar:
-
-```csv
-mes,anyo,estado
-enero,2015,pendiente
-febrero,2015,pendiente
+```bash
+git clone https://github.com/tu-usuario/gp_downloader
+cd gp_downloader
 ```
+
+Cargar la extensión en Chrome:
+
+1. Ir a `chrome://extensions`
+2. Activar **Modo desarrollador**
+3. **Cargar descomprimida** → seleccionar la carpeta `extension/`
 
 ## Uso
 
+**Primera vez:**
+
+1. Abrir Google Fotos en Chrome y navegar hasta la foto más reciente que quieras descargar
+2. Hacer clic en ella para abrirla en vista de detalle
+3. Ejecutar el script:
+
 ```bash
-# Instalar dependencias
-pip install -r requirements.txt
-
-# Iniciar la descarga
-python orchestrator/main.py
-
-# Durante la ejecución:
-#   p  → pausar al terminar el item actual
-#   q  → guardar estado y salir
+python -m orchestrator.main
 ```
 
-El progreso se guarda en `orchestrator/state.json`: si se interrumpe, al volver a ejecutar continúa desde donde lo dejó.
+4. Pulsar `Enter` en la consola
 
-## Estructura del proyecto
+**Reanudar sesión anterior:**
 
-```
-gp_downloader/
-├── extension/          # Extensión Chrome (Manifest V3)
-├── orchestrator/       # Orquestador Python
-├── ahk/                # Script AutoHotkey
-└── config/
-    └── meses.csv       # Lista de meses a procesar
+El script detecta automáticamente la última foto descargada en `config/progress.json` y continúa desde ahí sin intervención manual:
+
+```bash
+python -m orchestrator.main
 ```
 
-## Estado del proyecto
+**Controles durante la ejecución:**
 
-En desarrollo. Actualmente en fase de diseño de arquitectura.
+| Tecla | Acción |
+|---|---|
+| `p` | Pausar al terminar la foto actual |
+| `q` | Guardar estado y salir |
+
+## Archivos descargados
+
+```
+~/Downloads/gp/
+├── junio_2024/
+├── mayo_2024/
+├── ...
+└── enero_2015/
+```
+
+El progreso se guarda en `config/progress.json`:
+
+```json
+{
+  "downloaded": 1842,
+  "last_url": "https://photos.google.com/photo/AF1Qip..."
+}
+```
 
 ## Licencia
 
-MIT
+MIT — ver [LICENSE](LICENSE)
