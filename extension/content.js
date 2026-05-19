@@ -52,7 +52,14 @@ setTimeout(checkDomState, 1500);
 chrome.runtime.onMessage.addListener((cmd, _sender, sendResponse) => {
   console.log('[GP] Comando:', cmd.action);
 
-  if (cmd.action === 'download') {
+  if (cmd.action === 'current_photo') {
+    // El usuario ya tiene una foto abierta antes de que Python arrancara
+    if (location.href.includes('/photo/')) {
+      setTimeout(() => sendPhotoOpened(location.href), 500);
+    }
+    sendResponse({ok: true});
+  }
+  else if (cmd.action === 'download') {
     const start = Date.now();
     const tryDownload = () => {
       const moreBtn = [...document.querySelectorAll('button[aria-label="Más opciones"]')]

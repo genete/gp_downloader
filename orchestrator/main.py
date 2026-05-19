@@ -73,15 +73,21 @@ def run():
                 return
 
     if not last_url:
-        print('Pon Google Fotos en la cuadrícula donde quieres empezar y pulsa Enter...')
+        print('Abre manualmente la primera foto en Google Fotos y pulsa Enter aquí...')
         try:
             input()
         except EOFError:
             pass
-        watcher.send_command({'action': 'open_first'})
-        sig = watcher.wait(['photo_opened'], timeout=20, stop_event=_quit)
+        # Leer la URL de la foto ya abierta por el usuario
+        sig = watcher.wait(['photo_opened'], timeout=5, stop_event=_quit)
         if sig is None:
-            print('No se pudo abrir la primera foto — ¿está Google Fotos en la cuadrícula?')
+            # content.js solo emite photo_opened cuando cambia la URL;
+            # si el usuario ya estaba en la foto antes de arrancar Python,
+            # pedimos al script que relea el estado actual
+            watcher.send_command({'action': 'current_photo'})
+            sig = watcher.wait(['photo_opened'], timeout=10, stop_event=_quit)
+        if sig is None:
+            print('No se detectó ninguna foto abierta. Abre una foto en Google Fotos y vuelve a intentarlo.')
             return
 
     session_count = 0
