@@ -5,24 +5,40 @@ chrome.runtime.connect({name: 'keepalive'});
 
 // --- Lectura de fecha de la foto actual ---
 
+const MESES_MAP = {
+  ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
+  jul: 7, ago: 8, sep: 9, oct: 10, nov: 11, dic: 12
+};
+
 function readPhotoDate() {
+  // Formato esperado: "30 jun 2024" o "30 jun. 2024"
   const el = [...document.querySelectorAll('.R9U8ab')].find(e =>
-    /^\d{1,2} [a-z]{3,4} \d{4}$/i.test(e.textContent.trim())
+    /^\d{1,2} [a-z]{3,5}\.? \d{4}$/i.test(e.textContent.trim())
   );
   if (!el) return null;
-  const MESES = {
-    ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
-    jul: 7, ago: 8, sep: 9, oct: 10, nov: 11, dic: 12
-  };
-  const [day, mon, year] = el.textContent.trim().toLowerCase().split(' ');
-  const month = MESES[mon];
-  return month ? {year: parseInt(year), month, day: parseInt(day)} : null;
+  // Eliminar punto del mes abreviado si lo tiene ("jun." → "jun")
+  const parts = el.textContent.trim().toLowerCase().replace('.', '').split(' ');
+  const [day, mon, year] = parts;
+  const month = MESES_MAP[mon];
+  if (!month) {
+    console.warn('[GP] readPhotoDate: mes no reconocido:', mon, '— texto:', el.textContent.trim());
+    return null;
+  }
+  return {year: parseInt(year), month, day: parseInt(day)};
 }
 
-function sendPhotoOpened(url) {
+// Reintenta leer la fecha hasta 5 segundos (el DOM puede tardar en renderizar)
+function sendPhotoOpened(url, attempt = 0) {
   const date = readPhotoDate();
-  console.log(`[GP] PHOTO_OPENED — ${url} — fecha:`, date);
-  sendToBackground({type: 'PHOTO_OPENED', photoUrl: url, date});
+  if (date) {
+    console.log(`[GP] PHOTO_OPENED — ${url} — fecha:`, date);
+    sendToBackground({type: 'PHOTO_OPENED', photoUrl: url, date});
+  } else if (attempt < 10) {
+    setTimeout(() => sendPhotoOpened(url, attempt + 1), 500);
+  } else {
+    console.warn('[GP] PHOTO_OPENED — fecha no encontrada tras 5s:', url);
+    sendToBackground({type: 'PHOTO_OPENED', photoUrl: url, date: null});
+  }
 }
 
 // --- Detección de cambios de URL ---
@@ -34,8 +50,7 @@ function checkDomState() {
   if (location.href !== lastHref) {
     lastHref = location.href;
     if (location.href.includes('/photo/')) {
-      // Esperar a que el DOM renderice la info de la foto antes de leer la fecha
-      setTimeout(() => sendPhotoOpened(location.href), 1500);
+      sendPhotoOpened(location.href);
     }
   }
 }
